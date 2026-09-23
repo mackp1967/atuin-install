@@ -10,16 +10,32 @@ DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/atuin"
 KEY_FILE="$DATA_DIR/key"
 ATUIN="$HOME/.atuin/bin/atuin"
 
+LOGIN=false
+case "${1:-}" in
+    "") ;;
+    --login) LOGIN=true ;;
+    -h|--help)
+        echo "Usage: ${0} [--login]"
+        echo "Default: provision and verify your .env key; install Atuin; keep sync disabled."
+        echo "--login: also authenticate, then verify key and local record store. Never sync or import."
+        exit 0
+        ;;
+    *)
+        echo "Usage: ${0} [--login]" >&2
+        exit 2
+        ;;
+esac
+
 if [[ "${EUID}" -eq 0 ]]; then
     echo "Run as your normal user, not root or sudo." >&2
     exit 1
 fi
 if [[ ! -f "$ENV_FILE" ]]; then
-    echo "Missing $ENV_FILE; copy .env.example to .env and fill in your credentials." >&2
+    echo "Missing $ENV_FILE; copy .env.example to .env and fill it in." >&2
     exit 1
 fi
 
-# Only load a trusted local .env file; it is Bash code.
+# Source only a trusted, locally controlled .env file.
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 for variable in ATUIN_SYNC_URL ATUIN_USER ATUIN_PASSWORD ATUIN_KEY; do
@@ -29,85 +45,88 @@ for variable in ATUIN_SYNC_URL ATUIN_USER ATUIN_PASSWORD ATUIN_KEY; do
     fi
 done
 
-# Remove only trailing CR/LF. Do not create any key or invoke Atuin with an empty key.
+# Normalize trailing Windows CR/LF, not the body of the key.
 while [[ "$ATUIN_KEY" == *$'\r' || "$ATUIN_KEY" == *$'\n' ]]; do
     ATUIN_KEY="${ATUIN_KEY%?}"
 done
 if [[ -z "$ATUIN_KEY" || "$ATUIN_KEY" == *$'\r'* || "$ATUIN_KEY" == *$'\n'* ]]; then
-    echo "ATUIN_KEY is missing or contains an embedded CR/LF; aborting." >&2
+    echo "Invalid ATUIN_KEY: empty or contains CR/LF." >&2
     exit 1
 fi
 
-# IMPORTANT: establish the supplied key *before* running the Atuin installer,
-# login, history import, init or sync. Never generate or replace a different key.
-mkdir -p "$DATA_DIR" "$CONFIG_DIR"
-if [[ -e "$KEY_FILE" ]]; then
+verify_key() {
     if ! printf '%s' "$ATUIN_KEY" | cmp -s "$KEY_FILE" -; then
-        echo "ERROR: Existing $KEY_FILE differs from ATUIN_KEY in .env." >&2
-        echo "Preserving your current key and history; nothing was initialized." >&2
+        echo "ERROR: $KEY_FILE does not match ATUIN_KEY in .env." >&2
+        echo "No import or sync was attempted. Preserve your current files for recovery." >&2
         exit 1
     fi
-    echo "Existing key matches .env; retaining it."
+}
+
+# First: put the supplied key in place before even running the Atuin installer.
+mkdir -p "$DATA_DIR" "$CONFIG_DIR"
+if [[ -e "$KEY_FILE" ]]; then
+    verify_key
+    echo "Existing key matches .env; leaving it untouched."
 else
     printf '%s' "$ATUIN_KEY" > "$KEY_FILE"
-    echo "Created $KEY_FILE from .env (without CR/LF)."
+    echo "Created key from .env, without a newline."
 fi
 chmod 600 "$KEY_FILE"
+verify_key
 
-# Confirm the actual key file is exactly the supplied key before any Atuin command.
-if ! printf '%s' "$ATUIN_KEY" | cmp -s "$KEY_FILE" -; then
-    echo "ERROR: Key file verification failed; aborting." >&2
-    exit 1
-fi
-
+# Explicit key_path keeps Atuin pointed at the exact file we verified.
+# auto_sync=false protects the server while diagnosing the second key ID.
 if [[ -f "$CONFIG_FILE" ]]; then
     cp -p "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
 fi
 config_tmp="$(mktemp "$CONFIG_DIR/.config.toml.XXXXXX")"
 printf 'sync_address = "%s"\n' "$ATUIN_SYNC_URL" > "$config_tmp"
+printf 'key_path = "%s"\n' "$KEY_FILE" >> "$config_tmp"
+printf 'auto_sync = false\n' >> "$config_tmp"
 if [[ -f "$CONFIG_FILE" ]]; then
-    sed '/^[[:space:]]*sync_address[[:space:]]*=/d' "$CONFIG_FILE" >> "$config_tmp"
+    sed -E '/^[[:space:]]*(sync_address|key_path|auto_sync)[[:space:]]*=/d' "$CONFIG_FILE" >> "$config_tmp"
 fi
 mv -f "$config_tmp" "$CONFIG_FILE"
 chmod 600 "$CONFIG_FILE"
 
-# Installation can add shell integration; the key is already in place.
 if command -v atuin >/dev/null 2>&1; then
     ATUIN="$(command -v atuin)"
 elif [[ ! -x "$ATUIN" ]]; then
-    echo "Installing Atuin with your supplied key already configured..."
+    echo "Installing Atuin after provisioning your key..."
     curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive
 fi
 if [[ ! -x "$ATUIN" ]]; then
     echo "Atuin executable not found." >&2
     exit 1
 fi
+verify_key
 
-echo "Using sync server: $ATUIN_SYNC_URL"
-echo "Username: $ATUIN_USER"
-echo "Key file verified: $KEY_FILE"
-
-# Reusing a session avoids login/re-encryption of an existing local store.
-SESSION_FILE="$DATA_DIR/session"
-if [[ -s "$SESSION_FILE" ]]; then
-    echo "Existing session found; preserving it and your key."
-else
-    echo "Logging in with only your .env encryption key."
-    # Atuin login flags briefly expose credentials in the local process list.
-    "$ATUIN" login -u "$ATUIN_USER" -p "$ATUIN_PASSWORD" -k "$ATUIN_KEY"
+echo "Atuin installed. Supplied key verified. Automatic sync is disabled."
+if ! "$LOGIN"; then
+    echo "No login, history import, or sync was performed."
+    echo "When ready, run: bash ${0} --login"
+    exit 0
 fi
 
-# Refuse to import/sync if login unexpectedly changed the key.
-if ! printf '%s' "$ATUIN_KEY" | cmp -s "$KEY_FILE" -; then
-    echo "ERROR: Atuin changed the key file; refusing to import or sync." >&2
+# Check existing records before login: do not write additional records if they
+# are already encrypted under a different key.
+if ! "$ATUIN" store verify; then
+    echo "Local record store failed verification. Login and sync are blocked." >&2
     exit 1
 fi
 
-if [[ -t 0 ]]; then
-    read -r -p "Import existing shell history? [Y/n] " reply
-    if [[ ! "$reply" =~ ^[Nn]$ ]]; then
-        "$ATUIN" import auto
-    fi
+SESSION_FILE="$DATA_DIR/session"
+if [[ -s "$SESSION_FILE" ]]; then
+    echo "Existing session found; not logging in again."
+else
+    echo "Logging in with the .env key. Sync remains disabled."
+    # CLI flags may briefly expose secrets to privileged local processes.
+    "$ATUIN" login -u "$ATUIN_USER" -p "$ATUIN_PASSWORD" -k "$ATUIN_KEY"
 fi
-"$ATUIN" sync
-echo "Atuin setup complete. Restart your shell to load its integration."
+verify_key
+if ! "$ATUIN" store verify; then
+    echo "Store failed verification after login. No import or sync attempted." >&2
+    exit 1
+fi
+echo "Login and local verification complete; auto_sync remains false."
+echo "No history was imported or synchronized. Review before enabling sync."
