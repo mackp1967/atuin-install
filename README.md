@@ -32,11 +32,11 @@ The key file path is **`~/.local/share/atuin/key`**, not `/.local/share/atuin/ke
 
 ```bash
 bash uninstall-atuin.sh
-# Also delete local Atuin configuration, history, and key:
+# Also delete remaining local Atuin configuration and cache:
 bash uninstall-atuin.sh --purge
 ```
 
-Remove Atuin initialization from your shell rc file and restart the shell. Uninstall does not delete your remote account or synchronized server data.
+Both commands remove `~/.atuin` and `~/.local/share/atuin` (including local history and key). The uninstall script sources `~/.bashrc` in its own process, but that cannot reload the shell that launched it. Remove or guard the Atuin initialization lines in `~/.bashrc`, then run `source ~/.bashrc` in your current shell or start a fresh shell. Uninstall does not delete your remote account or synchronized server data.
 
 ## Security
 
