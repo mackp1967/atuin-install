@@ -59,7 +59,15 @@ if [[ -f "$KEY_FILE" ]]; then
     cp -p "$KEY_FILE" "$KEY_FILE.bak.$(date +%Y%m%d%H%M%S)"
 fi
 # Remove trailing CR/LF from the configured key, but do not alter its interior.
-while [[ "$ATUIN_KEY" == *
+while [[ "$ATUIN_KEY" == *$'\r' || "$ATUIN_KEY" == *$'\n' ]]; do
+    ATUIN_KEY="${ATUIN_KEY%?}"
+done
+if [[ -z "$ATUIN_KEY" ]]; then
+    echo "ATUIN_KEY is empty after removing trailing CR/LF." >&2
+    exit 1
+fi
+# The key file must not end in a newline or carriage return.
+printf '%s' "$ATUIN_KEY" > "$KEY_FILE"
 chmod 600 "$KEY_FILE"
 
 echo "Using sync server: $ATUIN_SYNC_URL"
