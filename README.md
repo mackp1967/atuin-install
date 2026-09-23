@@ -22,7 +22,7 @@ ATUIN_PASSWORD='your-existing-password'
 ATUIN_KEY='your-existing-encryption-key'
 ```
 
-The installer uses the values in `.env` to install Atuin if necessary, set `sync_address` in `~/.config/atuin/config.toml`, create `~/.local/share/atuin/key`, log in, optionally import existing shell history, and synchronize. The key and configuration files have mode `600`. Existing files are backed up before replacement. The installer strips trailing CR and LF characters from `ATUIN_KEY` and writes the key file with **no trailing newline**. The data directory follows `XDG_DATA_HOME` if set.
+The installer uses the values in `.env` to install Atuin if necessary, set `sync_address` in `~/.config/atuin/config.toml`, create `~/.local/share/atuin/key` only if it is missing, log in only if there is no existing session, optionally import existing shell history, and synchronize. The key and configuration files have mode `600`. Existing configuration files are backed up before replacement. The installer strips trailing CR and LF characters from `ATUIN_KEY`, compares it byte-for-byte with any existing key file, and **stops without changing the key or local history if they differ**. It writes a new key file with **no trailing newline** only when a key file does not exist. It also avoids re-running login on an existing session, which could trigger re-encryption of the local store. The data directory follows `XDG_DATA_HOME` if set.
 
 Run as your normal Linux user, **not with sudo**. Restart the shell after installation. For a different environment file, set `ATUIN_ENV_FILE=/path/to/.env`.
 
