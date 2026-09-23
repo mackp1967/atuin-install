@@ -2,7 +2,9 @@
 
 Install and connect Atuin to your self-hosted sync server using a local `.env` file.
 
-## Set up
+## Staged setup (sync stays disabled)
+
+On a **fresh test host** run as your normal user, not with sudo:
 
 ```bash
 git clone https://github.com/mackp1967/atuin-install.git
@@ -10,23 +12,22 @@ cd atuin-install
 cp .env.example .env
 chmod 600 .env
 ${EDITOR:-nano} .env
+bash -n install-atuin.sh
 bash install-atuin.sh
 ```
 
-Set these variables in `.env`:
+Set `ATUIN_SYNC_URL`, `ATUIN_USER`, `ATUIN_PASSWORD`, and `ATUIN_KEY` in the ignored `.env`. The installer first writes your supplied key to `~/.local/share/atuin/key` with no trailing newline, or refuses to proceed if an existing key differs. It explicitly sets `key_path` to that file, disables automatic sync, and installs Atuin. **The default does not log in, import history, or sync.**
 
-```dotenv
-ATUIN_SYNC_URL='https://atuin.7lsi.com'
-ATUIN_USER='mackp'
-ATUIN_PASSWORD='your-existing-password'
-ATUIN_KEY='your-existing-encryption-key'
+Once the key file has been verified and you are ready to test authentication:
+
+```bash
+bash install-atuin.sh --login
+atuin store verify
 ```
 
-The installer uses the values in `.env` to install Atuin if necessary, set `sync_address` in `~/.config/atuin/config.toml`, validate `ATUIN_KEY` and create `~/.local/share/atuin/key` **before installing or running Atuin**, log in only if there is no existing session, optionally import existing shell history, and synchronize. The key and configuration files have mode `600`. Existing configuration files are backed up before replacement. The installer strips trailing CR and LF characters from `ATUIN_KEY`, compares it byte-for-byte with any existing key file, and **stops without changing the key or local history if they differ**. It writes a new key file with **no trailing newline** only when a key file does not exist. It also avoids re-running login on an existing session, which could trigger re-encryption of the local store. The installer verifies the key file byte-for-byte before Atuin installation/login and again before importing or syncing; it never generates a replacement key. The data directory follows `XDG_DATA_HOME` if set.
+The `--login` stage checks the local record store before and after logging in. It still never imports history or syncs, and leaves `auto_sync = false`. If verification fails, stop; do not run `atuin store purge` or sync until you have reviewed a backup and the key mismatch. Confirm the correct key with an already-working host before enabling synchronization manually.
 
-Run as your normal Linux user, **not with sudo**. Restart the shell after installation. For a different environment file, set `ATUIN_ENV_FILE=/path/to/.env`.
-
-The key file path is **`~/.local/share/atuin/key`**, not `/.local/share/atuin/key`: the latter would be at the filesystem root.
+For a different environment file use `ATUIN_ENV_FILE=/path/to/.env`. The key directory follows `XDG_DATA_HOME` if set, so the default key file is **`~/.local/share/atuin/key`** (not `/.local/share/atuin/key`).
 
 ## Uninstall
 
