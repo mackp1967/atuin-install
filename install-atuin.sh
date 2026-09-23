@@ -102,20 +102,9 @@ fi
 verify_key
 
 echo "Atuin installed. Supplied key verified. Automatic sync is disabled."
-if [[ -f "$HOME/.bashrc" ]]; then
-    echo "Sourcing ~/.bashrc..."
-    # .bashrc may reference variables not set in a noninteractive installer.
-    # This affects the installer shell only, not the invoking terminal.
-    set +u
-    # shellcheck disable=SC1091
-    if ! source "$HOME/.bashrc"; then
-        echo "Warning: ~/.bashrc returned an error; inspect its Atuin setup." >&2
-    fi
-    set -u
-fi
 if ! "$LOGIN"; then
     echo "No login, history import, or sync was performed."
-    echo "To update your current terminal, run: source ~/.bashrc"
+    echo "Next, run in your current terminal: source ~/.bashrc"
     echo "When ready, run: bash ${0} --login"
     exit 0
 fi
