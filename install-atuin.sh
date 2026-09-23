@@ -31,7 +31,10 @@ if [[ -f "$CONFIG_FILE" ]]; then
   # check the resulting file before running this script again.
   sed -i '/^[[:space:]]*sync_address[[:space:]]*=/d' "$CONFIG_FILE"
 fi
-printf '\nsync_address = "%s"\n' "$SERVER" >> "$CONFIG_FILE"
+tmp="$(mktemp "$CONFIG_DIR/.config.toml.XXXXXX")"
+printf 'sync_address = "%s"\n' "$SERVER" > "$tmp"
+cat "$CONFIG_FILE" >> "$tmp" 2>/dev/null || true
+mv "$tmp" "$CONFIG_FILE"
 chmod 600 "$CONFIG_FILE"
 
 echo "Server: $SERVER"
