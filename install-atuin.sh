@@ -42,23 +42,7 @@ if [[ ! -x "$ATUIN" ]]; then
     exit 1
 fi
 
-mkdir -p "$CONFIG_DIR" "$DATA_DIR"
-if [[ -f "$CONFIG_FILE" ]]; then
-    cp -p "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
-fi
-config_tmp="$(mktemp "$CONFIG_DIR/.config.toml.XXXXXX")"
-# Prepend sync_address so it stays top-level in TOML even if sections follow.
-printf 'sync_address = "%s"\n' "$ATUIN_SYNC_URL" > "$config_tmp"
-if [[ -f "$CONFIG_FILE" ]]; then
-    sed '/^[[:space:]]*sync_address[[:space:]]*=/d' "$CONFIG_FILE" >> "$config_tmp"
-fi
-mv -f "$config_tmp" "$CONFIG_FILE"
-chmod 600 "$CONFIG_FILE"
-
-if [[ -f "$KEY_FILE" ]]; then
-    cp -p "$KEY_FILE" "$KEY_FILE.bak.$(date +%Y%m%d%H%M%S)"
-fi
-# Remove trailing CR/LF from the configured key, but do not alter its interior.
+# Normalize only trailing CR/LF from the .env value.
 while [[ "$ATUIN_KEY" == *$'\r' || "$ATUIN_KEY" == *$'\n' ]]; do
     ATUIN_KEY="${ATUIN_KEY%?}"
 done
@@ -66,17 +50,51 @@ if [[ -z "$ATUIN_KEY" ]]; then
     echo "ATUIN_KEY is empty after removing trailing CR/LF." >&2
     exit 1
 fi
-# The key file must not end in a newline or carriage return.
-printf '%s' "$ATUIN_KEY" > "$KEY_FILE"
+
+# Never replace an existing key: it may be needed to decrypt the local store.
+# Compare without printing the key or passing it as a process argument.
+if [[ -e "$KEY_FILE" ]]; then
+    if ! printf '%s' "$ATUIN_KEY" | cmp -s "$KEY_FILE" -; then
+        echo "ERROR: .env ATUIN_KEY differs from the existing $KEY_FILE." >&2
+        echo "Leaving the key, local history, and login untouched. Check your .env." >&2
+        exit 1
+    fi
+    echo "Existing key matches .env; preserving it."
+fi
+
+mkdir -p "$CONFIG_DIR" "$DATA_DIR"
+if [[ -f "$CONFIG_FILE" ]]; then
+    cp -p "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
+fi
+config_tmp="$(mktemp "$CONFIG_DIR/.config.toml.XXXXXX")"
+# Prepend sync_address so it remains top-level in TOML.
+printf 'sync_address = "%s"\n' "$ATUIN_SYNC_URL" > "$config_tmp"
+if [[ -f "$CONFIG_FILE" ]]; then
+    sed '/^[[:space:]]*sync_address[[:space:]]*=/d' "$CONFIG_FILE" >> "$config_tmp"
+fi
+mv -f "$config_tmp" "$CONFIG_FILE"
+chmod 600 "$CONFIG_FILE"
+
+if [[ ! -e "$KEY_FILE" ]]; then
+    # No newline: Atuin key files must contain only the key.
+    printf '%s' "$ATUIN_KEY" > "$KEY_FILE"
+fi
 chmod 600 "$KEY_FILE"
 
 echo "Using sync server: $ATUIN_SYNC_URL"
 echo "Username: $ATUIN_USER"
 echo "Key file: $KEY_FILE"
 
-# For unattended login, the password/key are briefly visible in process args.
-"$ATUIN" login -u "$ATUIN_USER" -p "$ATUIN_PASSWORD" -k "$ATUIN_KEY"
-
+# Re-running login with -k can trigger re-encryption of an existing store.
+# Keep the existing authenticated session when one is present.
+SESSION_FILE="$DATA_DIR/session"
+if [[ -s "$SESSION_FILE" ]]; then
+    echo "Existing Atuin session found; skipping login to preserve local encryption."
+else
+    echo "No session found; logging in with the existing encryption key."
+    # Credentials may briefly appear in process arguments.
+    "$ATUIN" login -u "$ATUIN_USER" -p "$ATUIN_PASSWORD" -k "$ATUIN_KEY"
+fi
 if [[ -t 0 ]]; then
     read -r -p "Import existing shell history? [Y/n] " reply
     if [[ ! "$reply" =~ ^[Nn]$ ]]; then
