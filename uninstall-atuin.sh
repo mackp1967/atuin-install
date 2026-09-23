@@ -14,6 +14,24 @@ if [[ "${EUID}" -eq 0 ]]; then
   exit 1
 fi
 
+# Log out before deleting the binary or local account data.
+if command -v atuin >/dev/null 2>&1; then
+  ATUIN_BIN="$(command -v atuin)"
+elif [[ -x "$HOME/.atuin/bin/atuin" ]]; then
+  ATUIN_BIN="$HOME/.atuin/bin/atuin"
+else
+  ATUIN_BIN=""
+fi
+
+if [[ -n "$ATUIN_BIN" ]]; then
+  echo "Logging out of Atuin..."
+  if ! "$ATUIN_BIN" logout; then
+    echo "Warning: Atuin logout failed (or was already logged out); continuing local removal." >&2
+  fi
+else
+  echo "Atuin executable not found; skipping logout."
+fi
+
 echo "Removing the Atuin installation and local data from $HOME..."
 rm -rf -- "$HOME/.atuin" "${XDG_DATA_HOME:-$HOME/.local/share}/atuin"
 
