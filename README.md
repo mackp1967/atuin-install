@@ -1,47 +1,43 @@
 # Atuin install
 
-Install and connect a Linux shell to the existing self-hosted Atuin account.
+Install and connect Atuin to your self-hosted sync server using a local `.env` file.
 
-- Sync server: `https://atuin.7lsi.com`
-- Username: `mackp`
-- Password and encryption key are entered interactively, **never stored in this repository**.
-
-## Install on a new computer
-
-Run as your normal Linux user (not with `sudo`):
+## Set up
 
 ```bash
 git clone https://github.com/mackp1967/atuin-install.git
 cd atuin-install
+cp .env.example .env
+chmod 600 .env
+${EDITOR:-nano} .env
 bash install-atuin.sh
 ```
 
-The installer installs Atuin when needed, backs up an existing `config.toml`, configures the sync server, prompts for login credentials and the existing encryption key, optionally imports local shell history, and runs `atuin sync`.
+Set these variables in `.env`:
 
-To override the defaults:
-
-```bash
-ATUIN_SERVER="https://other.example.com" ATUIN_USER="otheruser" bash install-atuin.sh
+```dotenv
+ATUIN_SYNC_URL='https://atuin.7lsi.com'
+ATUIN_USER='mackp'
+ATUIN_PASSWORD='your-existing-password'
+ATUIN_KEY='your-existing-encryption-key'
 ```
 
-Restart your shell after installing. Check sync with `atuin status` and `atuin sync`. On an already configured computer, `atuin key` displays the key you need for new installs; keep it in your password manager.
+The installer uses the values in `.env` to install Atuin if necessary, set `sync_address` in `~/.config/atuin/config.toml`, create `~/.local/share/atuin/key`, log in, optionally import existing shell history, and synchronize. The key and configuration files have mode `600`. Existing files are backed up before replacement. The data directory follows `XDG_DATA_HOME` if set.
+
+Run as your normal Linux user, **not with sudo**. Restart the shell after installation. For a different environment file, set `ATUIN_ENV_FILE=/path/to/.env`.
+
+The key file path is **`~/.local/share/atuin/key`**, not `/.local/share/atuin/key`: the latter would be at the filesystem root.
 
 ## Uninstall
 
-Remove the installer-managed Atuin binary while keeping your local configuration and history:
-
 ```bash
 bash uninstall-atuin.sh
-```
-
-To also delete **local** Atuin configuration, history, and cached data:
-
-```bash
+# Also delete local Atuin configuration, history, and key:
 bash uninstall-atuin.sh --purge
 ```
 
-Review `~/.bashrc` or `~/.zshrc` and remove any Atuin initialization lines, then restart the shell. The uninstall script does not remove shell initialization automatically, and it does not remove binaries installed separately via a package manager or delete your server-side account/history.
+Remove Atuin initialization from your shell rc file and restart the shell. Uninstall does not delete your remote account or synchronized server data.
 
 ## Security
 
-Do not commit your password, encryption key, or personal `config.toml`. The script uses the interactive Atuin login prompt rather than including secrets in command-line flags. Inspect downloaded installers before executing them in sensitive environments.
+`.env` is ignored by Git. **Never commit it or your encryption key.** Copy the example to each computer via a secure channel or populate it from your password manager. The installer reads `.env` as trusted Bash input; only use a file you control. Atuin's `login -p ... -k ...` flags allow unattended setup but briefly expose secrets in process arguments. On shared machines with untrusted local users, consider interactive login instead. Once installed, store a backup of your encryption key in your password manager.
